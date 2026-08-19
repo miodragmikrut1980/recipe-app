@@ -1,0 +1,3 @@
+# Railway/Nixpacks konfiguracija — osigurava da je ffmpeg dostupan
+[phases.setup]
+nixPkgs = ["nodejs_20", "ffmpeg"]
