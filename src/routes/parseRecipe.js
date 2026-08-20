@@ -1,24 +1,24 @@
 import { Router } from 'express';
 import { parseRecipeFromText } from '../services/aiParser.js';
 import { fetchPostThumbnail } from '../services/instagramEmbed.js';
+import { fetchLinkPreview, looksLikeRecipe } from '../services/linkPreview.js';
+import { fetchYouTubeDescription, isYouTubeUrl } from '../services/youtubeApi.js';
 import { saveRecipe } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 
 const router = Router();
 
 /**
- * NAPOMENA O DIZAJNU: Instagram-ov zvanicni API ne dozvoljava citanje
- * captiona sa tudjih licnih naloga (samo sopstveni ili tudji Business/
- * Creator nalozi), a njihov oEmbed endpoint izricito zabranjuje koriscenje
- * sadrzaja za bilo sta osim prikazivanja posta korisniku — sto iskljucuje
- * slanje caption-a AI-ju radi trajnog cuvanja strukturiranog recepta.
+ * Jedan endpoint, dva rezima:
  *
- * Zato klijent (mobilna app) trazi od korisnika da sam nalepi tekst opisa
- * — to je legalno jer korisnik rucno prosledjuje sadrzaj koji je vec
- * procitao, a ne app koja ga programski izvlaci.
+ * 1. AUTO (samo { url }): backend sam procita caption sa javne stranice
+ *    posta (link unfurling, kao WhatsApp preview). Ako caption lici na
+ *    recept — parsira i cuva BEZ ijednog dodatnog koraka korisnika.
+ *    Ako ne — vraca 422 { code: 'AUTO_EXTRACT_FAILED' } i app prelazi
+ *    na rucni unos.
  *
- * Thumbnail sliku i dalje mozemo legalno dobiti preko oEmbed-a jer je to
- * dozvoljena upotreba (prikaz posta), pa je koristimo ovde odvojeno.
+ * 2. RUCNI ({ url, text }): korisnik je nalepio caption sam — parsira se
+ *    prosledjeni tekst (fallback, radi kao i do sada).
  */
 router.post('/parse-recipe', requireAuth, async (req, res) => {
   const { url, text } = req.body;
@@ -26,13 +26,32 @@ router.post('/parse-recipe', requireAuth, async (req, res) => {
   if (!url) {
     return res.status(400).json({ error: 'Nedostaje "url" u telu zahteva' });
   }
-  if (!text || !text.trim()) {
-    return res.status(400).json({ error: 'Nedostaje "text" (nalepljen caption) u telu zahteva' });
-  }
 
   try {
+    let recipeText = text?.trim() || null;
+
+    if (!recipeText) {
+      // YouTube ima zvanican API sa punim opisom — koristi ga kad je moguce,
+      // jer je og:description na YouTube-u skracen (~150 karaktera)
+      const preview = isYouTubeUrl(url)
+        ? (await fetchYouTubeDescription(url)) || (await fetchLinkPreview(url))
+        : await fetchLinkPreview(url);
+
+      if (preview && looksLikeRecipe(preview.caption)) {
+        recipeText = preview.title
+          ? `${preview.title}\n\n${preview.caption}`
+          : preview.caption;
+      } else {
+        return res.status(422).json({
+          code: 'AUTO_EXTRACT_FAILED',
+          error:
+            'Opis posta ne sadrži recept (ili post nije javan). Nalepi tekst ručno ili podeli sačuvan video.',
+        });
+      }
+    }
+
     const [recipe, thumbnail] = await Promise.all([
-      parseRecipeFromText(text, url),
+      parseRecipeFromText(recipeText, url),
       fetchPostThumbnail(url),
     ]);
 

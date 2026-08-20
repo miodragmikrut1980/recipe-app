@@ -20,6 +20,7 @@ const SYSTEM_PROMPT = `Ti si asistent koji iz teksta objave sa drustvenih mreza 
 }
 Za nutritionPerServing napravi razumnu procenu na osnovu sastojaka i broja porcija — jasno je da nije precizno kao laboratorijska analiza, samo okvirna procena, ali daj konkretne brojeve, ne null, osim ako sastojci uopste nisu poznati.
 Za amount koristi domace mere kad god je prirodno (šolja, kašika, kašičica, čaša, kg, g, ml) umesto amerických mera (cup, tbsp, tsp, oz) — konvertuj ako original koristi americke mere. Nazive sastojaka piši na srpskom jeziku ako je original na srpskom ili srodnom jeziku.
+Tekst koji dobijas moze biti dugacak opis videa (narocito sa YouTube-a) i sadrzati mnogo materijala koji NIJE deo recepta — linkove ka drustvenim mrezama, sponzorstva, hashtag-ove, pozive na pretplatu, timestamp-ove poglavlja. Ignorisi sve to i izvuci samo stvarni recept (sastojci i koraci pripreme).
 Ako tekst ne sadrzi dovoljno informacija za neko polje, iskoristi razumnu procenu na osnovu konteksta ili ostavi prazno/null. Nikad ne izmisljaj sastojke koji se ne pominju niti nagovestavaju u tekstu.`;
 
 /**
