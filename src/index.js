@@ -13,17 +13,27 @@ import { listRecipes, deleteRecipe, updateRecipe } from './services/db.js';
 import { requireAuth } from './middleware/auth.js';
 
 const app = express();
-app.use(cors());
 
-// Loguje bas svaki zahtev + status odgovora — bez ovoga se ne vidi u logu
-// kad zahtev padne na necem sto samo ne loguje (npr. 401 iz requireAuth)
+// Loguje BAS SVAKI zahtev, ukljucujuci OPTIONS preflight, PRE bilo kakve
+// obrade — jedini nacin da se vidi ako zahtev pada na CORS proveri
 app.use((req, res, next) => {
   const start = Date.now();
+  console.log(`>>> STIGAO ${req.method} ${req.path}`);
   res.on('finish', () => {
     console.log(`${req.method} ${req.path} -> ${res.statusCode} (${Date.now() - start}ms)`);
   });
   next();
 });
+
+app.use(
+  cors({
+    origin: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  })
+);
+app.options('*', cors());
+
 app.use(express.json());
 
 // Opsti rate limit: 100 zahteva po IP na 15 min
