@@ -9,11 +9,10 @@ import mealPlanRouter from './routes/mealPlan.js';
 import shoppingListRouter from './routes/shoppingList.js';
 import smartFeaturesRouter from './routes/smartFeatures.js';
 import householdRouter from './routes/household.js';
-import { listRecipes, deleteRecipe } from './services/db.js';
+import { listRecipes, deleteRecipe, updateRecipe } from './services/db.js';
 import { requireAuth } from './middleware/auth.js';
 
 const app = express();
-app.set('trust proxy', 1);
 app.use(cors());
 app.use(express.json());
 
@@ -32,6 +31,16 @@ app.get('/recipes', requireAuth, async (req, res) => {
     res.json({ recipes });
   } catch (err) {
     console.error('Greska pri ucitavanju recepata:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/recipes/:id', requireAuth, async (req, res) => {
+  try {
+    const updated = await updateRecipe(req.params.id, req.body, req.user.id);
+    res.json({ recipe: updated });
+  } catch (err) {
+    console.error('Greska pri izmeni recepta:', err);
     res.status(500).json({ error: err.message });
   }
 });

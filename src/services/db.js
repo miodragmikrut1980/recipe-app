@@ -60,6 +60,27 @@ export async function listRecipes(userId) {
   return data.map(mapRowToRecipe);
 }
 
+export async function updateRecipe(id, updates, userId) {
+  const patch = {};
+  if (updates.title !== undefined) patch.title = updates.title;
+  if (updates.servings !== undefined) patch.servings = updates.servings;
+  if (updates.ingredients !== undefined) patch.ingredients = updates.ingredients;
+  if (updates.steps !== undefined) patch.steps = updates.steps;
+  if (updates.prepTimeMinutes !== undefined) patch.prep_time_minutes = updates.prepTimeMinutes;
+  if (updates.tags !== undefined) patch.tags = updates.tags;
+
+  const { data, error } = await supabase
+    .from('recipes')
+    .update(patch)
+    .eq('id', id)
+    .eq('user_id', userId) // samo vlasnik sme da menja
+    .select()
+    .single();
+
+  if (error) throw new Error(`Izmena recepta nije uspela: ${error.message}`);
+  return mapRowToRecipe(data);
+}
+
 export async function deleteRecipe(id, userId) {
   const { error } = await supabase.from('recipes').delete().eq('id', id).eq('user_id', userId);
   if (error) throw new Error(`Brisanje recepta nije uspelo: ${error.message}`);
