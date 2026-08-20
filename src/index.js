@@ -14,6 +14,16 @@ import { requireAuth } from './middleware/auth.js';
 
 const app = express();
 app.use(cors());
+
+// Loguje bas svaki zahtev + status odgovora — bez ovoga se ne vidi u logu
+// kad zahtev padne na necem sto samo ne loguje (npr. 401 iz requireAuth)
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    console.log(`${req.method} ${req.path} -> ${res.statusCode} (${Date.now() - start}ms)`);
+  });
+  next();
+});
 app.use(express.json());
 
 // Opsti rate limit: 100 zahteva po IP na 15 min

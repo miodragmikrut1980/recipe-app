@@ -9,6 +9,7 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
 export async function requireAuth(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) {
+    console.warn(`401 (nedostaje token) na ${req.method} ${req.path}`);
     return res.status(401).json({ error: 'Nedostaje autorizacioni token' });
   }
 
@@ -16,6 +17,7 @@ export async function requireAuth(req, res, next) {
   const { data, error } = await supabase.auth.getUser(token);
 
   if (error || !data?.user) {
+    console.warn(`401 (nevazeci token) na ${req.method} ${req.path}: ${error?.message || 'nema usera'}`);
     return res.status(401).json({ error: 'Nevažeći ili istekao token' });
   }
 
