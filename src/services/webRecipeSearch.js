@@ -23,7 +23,7 @@ Nakon pretrage, vrati ISKLJUCIVO validan JSON (bez ikakvog dodatnog teksta pre i
     }
   ]
 }
-Koristi domace mere (šolja, kašika, g, ml) kad god je prirodno. Svaki recept mora imati stvaran sourceUrl sa stranice koju si pronasao pretragom — ne izmisljaj linkove.`;
+VAZNO: u tekstu (title, ingredients, steps) NIKAD ne koristi obican navodnik (") unutar vrednosti — ako moras da citiras nesto, koristi obican apostrof (') ili parafraziraj. Ne koristi backslash. Koristi domace mere (šolja, kašika, g, ml) kad god je prirodno. Svaki recept mora imati stvaran sourceUrl sa stranice koju si pronasao pretragom — ne izmisljaj linkove.`;
 
 /**
  * Pretrazuje internet (Claude web_search alat) za recepte koji odgovaraju
@@ -36,7 +36,7 @@ export async function findRecipesOnline(constraints, count = 6, topRatedOnly = f
 
   const message = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 4000,
+    max_tokens: 8000,
     tools: [{ type: 'web_search_20250305', name: 'web_search' }],
     system: `${basePrompt}${RESPONSE_FORMAT}\n\nPotrebno je oko ${count} razlicitih recepata.`,
     messages: [
@@ -56,7 +56,6 @@ export async function findRecipesOnline(constraints, count = 6, topRatedOnly = f
 
   // Brojimo zagrade od prve { dok se ne vrate na 0 — pouzdanije od trazenja
   // "poslednje }" jer prezivljava slucaj kad AI doda tekst/kod POSLE JSON-a
-  // (npr. dodatno objasnjenje sa svojim vitičastim zagradama)
   const start = cleaned.indexOf('{');
   if (start !== -1) {
     let depth = 0;
@@ -77,7 +76,12 @@ export async function findRecipesOnline(constraints, count = 6, topRatedOnly = f
   let parsed;
   try {
     parsed = JSON.parse(cleaned);
-  } catch {
+  } catch (parseErr) {
+    // Logujemo sirov odgovor (skraceno) da sledeci put vidimo TACAN uzrok
+    // umesto da nagadjamo — moze biti osteceni navodnici, odsecen odgovor, itd.
+    console.error('JSON parse neuspesan. Sirov odgovor (prvih 3000 karaktera):');
+    console.error(cleaned.slice(0, 3000));
+    console.error(`Duzina odgovora: ${cleaned.length} karaktera. Greska: ${parseErr.message}`);
     throw new Error('Nisam uspeo da obradim rezultate pretrage. Probaj ponovo.');
   }
 
