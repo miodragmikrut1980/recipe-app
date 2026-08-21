@@ -4,7 +4,7 @@ import fs from 'fs';
 import os from 'os';
 import Anthropic from '@anthropic-ai/sdk';
 import { randomUUID } from 'crypto';
-import { saveRecipe } from '../services/db.js';
+import { saveRecipe, findPossibleDuplicate } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 
 const router = Router();
@@ -68,7 +68,8 @@ router.post('/parse-recipe-photo', requireAuth, upload.single('photo'), async (r
     };
 
     const savedRecipe = await saveRecipe(recipe, req.user.id);
-    res.json({ recipe: savedRecipe });
+    const duplicateOf = await findPossibleDuplicate(savedRecipe.title, req.user.id, savedRecipe.id).catch(() => null);
+    res.json({ recipe: savedRecipe, duplicateOf });
   } catch (err) {
     console.error('Greska pri skeniranju recepta:', err);
     res.status(500).json({ error: err.message || 'Nepoznata greska pri obradi fotografije' });

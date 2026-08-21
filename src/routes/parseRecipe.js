@@ -3,7 +3,7 @@ import { parseRecipeFromText } from '../services/aiParser.js';
 import { fetchPostThumbnail } from '../services/instagramEmbed.js';
 import { fetchLinkPreview, looksLikeRecipe } from '../services/linkPreview.js';
 import { fetchYouTubeDescription, isYouTubeUrl } from '../services/youtubeApi.js';
-import { saveRecipe } from '../services/db.js';
+import { saveRecipe, findPossibleDuplicate } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 
 const router = Router();
@@ -60,7 +60,8 @@ router.post('/parse-recipe', requireAuth, async (req, res) => {
     }
 
     const savedRecipe = await saveRecipe(recipe, req.user.id);
-    res.json({ recipe: savedRecipe });
+    const duplicateOf = await findPossibleDuplicate(savedRecipe.title, req.user.id, savedRecipe.id).catch(() => null);
+    res.json({ recipe: savedRecipe, duplicateOf });
   } catch (err) {
     console.error('Greska pri parsiranju recepta:', err);
     res.status(500).json({ error: err.message || 'Nepoznata greska' });

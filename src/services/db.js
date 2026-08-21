@@ -40,6 +40,25 @@ export async function saveRecipe(recipe, userId) {
   return mapRowToRecipe(data);
 }
 
+/**
+ * Trazi vec sacuvan recept korisnika sa vrlo slicnim naslovom (case/space
+ * neosetljivo), da bi upozorili korisnika ako je slucajno sacuvao isti
+ * video/recept dvaput. Ne blokira cuvanje — samo vraca info da se prikaze
+ * kao pitanje korisniku posle uspesnog cuvanja.
+ */
+export async function findPossibleDuplicate(title, userId, excludeId) {
+  const normalized = title.trim().toLowerCase();
+  const { data, error } = await supabase
+    .from('recipes')
+    .select('id, title')
+    .eq('user_id', userId)
+    .neq('id', excludeId)
+    .ilike('title', normalized);
+
+  if (error || !data || data.length === 0) return null;
+  return { id: data[0].id, title: data[0].title };
+}
+
 export async function listRecipes(userId) {
   const { data: profile } = await supabase
     .from('profiles')
