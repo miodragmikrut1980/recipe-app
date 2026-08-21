@@ -53,9 +53,26 @@ export async function findRecipesOnline(constraints, count = 6, topRatedOnly = f
   if (!textBlock) throw new Error('AI nije vratio tekstualni odgovor nakon pretrage.');
 
   let cleaned = textBlock.text.replace(/```json|```/g, '').trim();
+
+  // Brojimo zagrade od prve { dok se ne vrate na 0 — pouzdanije od trazenja
+  // "poslednje }" jer prezivljava slucaj kad AI doda tekst/kod POSLE JSON-a
+  // (npr. dodatno objasnjenje sa svojim vitičastim zagradama)
   const start = cleaned.indexOf('{');
-  const end = cleaned.lastIndexOf('}');
-  if (start !== -1 && end !== -1) cleaned = cleaned.slice(start, end + 1);
+  if (start !== -1) {
+    let depth = 0;
+    let end = -1;
+    for (let i = start; i < cleaned.length; i++) {
+      if (cleaned[i] === '{') depth++;
+      else if (cleaned[i] === '}') {
+        depth--;
+        if (depth === 0) {
+          end = i;
+          break;
+        }
+      }
+    }
+    if (end !== -1) cleaned = cleaned.slice(start, end + 1);
+  }
 
   let parsed;
   try {
