@@ -9,6 +9,8 @@ import mealPlanRouter from './routes/mealPlan.js';
 import shoppingListRouter from './routes/shoppingList.js';
 import smartFeaturesRouter from './routes/smartFeatures.js';
 import householdRouter from './routes/household.js';
+import ratingsRouter from './routes/ratings.js';
+import pushTokenRouter from './routes/pushToken.js';
 import { listRecipes, deleteRecipe, updateRecipe } from './services/db.js';
 import { requireAuth } from './middleware/auth.js';
 
@@ -41,7 +43,7 @@ app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 100, standardHeaders: true })
 
 // Strozi limit za skupe AI rute (Claude + Whisper pozivi kostaju)
 const aiLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true });
-app.use(['/parse-recipe', '/parse-recipe-video', '/parse-recipe-photo', '/customize-recipe', '/suggest-recipes', '/meal-plan/generate'], aiLimiter);
+app.use(['/parse-recipe', '/parse-recipe-video', '/parse-recipe-photo', '/customize-recipe', '/suggest-recipes', '/meal-plan/generate', '/meal-plan/generate-online'], aiLimiter);
 
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
@@ -82,6 +84,8 @@ app.use(mealPlanRouter);
 app.use(shoppingListRouter);
 app.use(smartFeaturesRouter);
 app.use(householdRouter);
+app.use(ratingsRouter);
+app.use(pushTokenRouter);
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => {

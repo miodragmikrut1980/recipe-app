@@ -82,3 +82,28 @@ create policy "recipes_delete_own" on recipes for delete using (auth.uid() = use
 create policy "meal_plan_own" on meal_plan for all using (auth.uid() = user_id);
 create policy "shopping_own" on shopping_lists for all using (auth.uid() = user_id);
 create policy "profiles_own" on profiles for all using (auth.uid() = id);
+
+-- Ocene recepata (1-5) — svaki clan porodice ocenjuje nezavisno, "omiljeni"
+-- recepti se racunaju kao oni sa ocenom 4 ili 5
+create table if not exists recipe_ratings (
+  id uuid primary key default gen_random_uuid(),
+  recipe_id uuid not null references recipes(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  rating int not null check (rating between 1 and 5),
+  created_at timestamptz not null default now(),
+  unique (recipe_id, user_id)
+);
+
+-- Push token po korisniku (Expo push notification token). Jedan po korisniku
+-- je dovoljno za MVP — ako se prijavi na novom uredjaju, prepisuje stari.
+create table if not exists push_tokens (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  token text not null,
+  updated_at timestamptz not null default now()
+);
+
+alter table recipe_ratings enable row level security;
+alter table push_tokens enable row level security;
+
+create policy "ratings_own" on recipe_ratings for all using (auth.uid() = user_id);
+create policy "push_tokens_own" on push_tokens for all using (auth.uid() = user_id);
