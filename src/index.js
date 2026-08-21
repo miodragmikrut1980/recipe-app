@@ -15,6 +15,7 @@ import { listRecipes, deleteRecipe, updateRecipe } from './services/db.js';
 import { requireAuth } from './middleware/auth.js';
 
 const app = express();
+app.set('trust proxy', 1); // Railway je iza proxy-ja — potrebno da rate limiter i IP detekcija rade ispravno
 
 // Loguje BAS SVAKI zahtev, ukljucujuci OPTIONS preflight, PRE bilo kakve
 // obrade — jedini nacin da se vidi ako zahtev pada na CORS proveri
