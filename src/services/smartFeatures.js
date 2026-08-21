@@ -5,8 +5,34 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 function extractJson(message) {
   const textBlock = message.content.find((b) => b.type === 'text');
-  const cleaned = textBlock.text.replace(/```json|```/g, '').trim();
-  return JSON.parse(cleaned);
+  let cleaned = textBlock.text.replace(/```json|```/g, '').trim();
+
+  // AI ponekad doda tekst/kod POSLE glavnog JSON objekta (drugi blok,
+  // objasnjenje, i sl). Trazenje "poslednje }" u tom slucaju pokupi previse.
+  // Umesto toga: nadji prvu { i broji zagrade dok se ne vrate na 0 — to je
+  // pravi kraj tog JSON objekta, bez obzira sta dolazi posle.
+  const start = cleaned.indexOf('{');
+  if (start !== -1) {
+    let depth = 0;
+    let end = -1;
+    for (let i = start; i < cleaned.length; i++) {
+      if (cleaned[i] === '{') depth++;
+      else if (cleaned[i] === '}') {
+        depth--;
+        if (depth === 0) {
+          end = i;
+          break;
+        }
+      }
+    }
+    if (end !== -1) cleaned = cleaned.slice(start, end + 1);
+  }
+
+  try {
+    return JSON.parse(cleaned);
+  } catch (err) {
+    throw new Error('AI nije vratio ocekivan format odgovora. Probaj ponovo ili promeni ogranicenja.');
+  }
 }
 
 /**
@@ -91,7 +117,8 @@ export async function generateWeeklyMealPlan(savedRecipes, constraints, days) {
   const message = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 1500,
-    system: `Napravi plan obroka za ${days} dana koristeci ISKLJUCIVO recepte iz liste koju dobijes (po id-ju). Postuj navedena ogranicenja. Ako nema dovoljno raznovrsnih recepata za sve obroke, ponovi neke — nemoj izmisljati recepte koji nisu na listi. Vrati ISKLJUCIVO JSON:
+    system: `Napravi plan obroka za ${days} dana koristeci ISKLJUCIVO recepte iz liste koju dobijes (po id-ju). Postuj navedena ogranicenja — ako ogranicenje trazi "decji meni" ili slicno, biraj iz liste recepte koji su blagi, jednostavni, bez ljutih zacina, sa poznatim/omiljenim decjim ukusima (npr. testenina, palacinke, piletina, jednostavni sendvici), a izbegavaj alkohol u receptu, jako ljuto, ili neobicne/egzoticne sastojke koje deca obicno ne vole. Ako nema dovoljno raznovrsnih recepata za sve obroke, ponovi neke — nemoj izmisljati recepte koji nisu na listi. Ako NIJEDAN recept sa liste ne odgovara ogranicenjima, vrati prazan niz umesto da odbijes zadatak.
+Vrati ISKLJUCIVO validan JSON, bez ikakvog uvodnog ili zavrsnog teksta, objasnjenja ili izvinjenja — cak i ako ogranicenja ne mogu potpuno da se ispune:
 {
   "plan": [
     {"dayOffset": 0, "mealType": "lunch", "recipeId": "id"},
