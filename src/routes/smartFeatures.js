@@ -117,14 +117,16 @@ router.post('/meal-plan/generate', async (req, res) => {
  * odmah sastavi plan za trazeni broj dana (rucak + vecera svaki dan).
  */
 router.post('/meal-plan/generate-online', async (req, res) => {
-  const { constraints, days = 7 } = req.body;
+  const { constraints, days = 7, topRatedOnly = false } = req.body;
   try {
     const neededCount = Math.min(days * 2, 10); // rucak+vecera po danu, max 10
-    const foundRecipes = await findRecipesOnline(constraints, neededCount);
+    const foundRecipes = await findRecipesOnline(constraints, neededCount, topRatedOnly);
 
     if (foundRecipes.length === 0) {
       return res.status(422).json({
-        error: 'Nisam pronašao odgovarajuće recepte na internetu. Probaj drugačija ograničenja.',
+        error: topRatedOnly
+          ? 'Nisam pronašao dovoljno vrhunski ocenjenih recepata za ova ograničenja. Probaj šira ograničenja.'
+          : 'Nisam pronašao odgovarajuće recepte na internetu. Probaj drugačija ograničenja.',
       });
     }
 

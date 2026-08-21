@@ -3,8 +3,11 @@ import { randomUUID } from 'crypto';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-const SYSTEM_PROMPT = `Ti si asistent koji pretrazuje internet i pronalazi dobro ocenjene, proverene recepte sa reputabilnih izvora (poznati kuvarski sajtovi, sajtovi sa recenzijama/ocenama). Prioritet daj receptima koji imaju vidljive dobre ocene ili su sa poznatih/proverenih izvora.
+const SYSTEM_PROMPT_STANDARD = `Ti si asistent koji pretrazuje internet i pronalazi dobro ocenjene, proverene recepte sa reputabilnih izvora (poznati kuvarski sajtovi, sajtovi sa recenzijama/ocenama). Prioritet daj receptima koji imaju vidljive dobre ocene ili su sa poznatih/proverenih izvora.`;
 
+const SYSTEM_PROMPT_TOP_RATED = `Ti si asistent koji pretrazuje internet i pronalazi ISKLJUCIVO najbolje moguce ocenjene recepte — vrh vrha, ne samo "dobre". Trazi recepte sa najvišim mogucim ocenama (4.8-5 od 5, ili ekvivalent), veliki broj recenzija (sto vise glasova/komentara, to bolje — to potvrdjuje da ocena nije slucajna), i sa najreputabilnijih, najpoznatijih izvora u datoj kategoriji (npr. najpoznatiji kuvarski sajtovi, oni koje profesionalni kuvari i ozbiljni kuvarski blogovi preporucuju). Ako moras da biras izmedju recepta sa odlicnom ocenom ali malo recenzija i recepta sa malo nizom ocenom ali mnogo recenzija, uzmi onaj sa vise recenzija — pouzdanija ocena. Odbaci sve sto nije jasno medju najboljima u svojoj kategoriji.`;
+
+const RESPONSE_FORMAT = `
 Nakon pretrage, vrati ISKLJUCIVO validan JSON (bez ikakvog dodatnog teksta pre ili posle) u formatu:
 {
   "recipes": [
@@ -25,13 +28,17 @@ Koristi domace mere (šolja, kašika, g, ml) kad god je prirodno. Svaki recept m
 /**
  * Pretrazuje internet (Claude web_search alat) za recepte koji odgovaraju
  * ogranicenjima, i vraca ih kao strukturirane recepte spremne za cuvanje.
+ * topRatedOnly=true trazi iskljucivo vrhunske, najbolje ocenjene recepte
+ * (stroziji filter nego podrazumevana "dobro ocenjeno" pretraga).
  */
-export async function findRecipesOnline(constraints, count = 6) {
+export async function findRecipesOnline(constraints, count = 6, topRatedOnly = false) {
+  const basePrompt = topRatedOnly ? SYSTEM_PROMPT_TOP_RATED : SYSTEM_PROMPT_STANDARD;
+
   const message = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 4000,
     tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-    system: `${SYSTEM_PROMPT}\n\nPotrebno je oko ${count} razlicitih recepata.`,
+    system: `${basePrompt}${RESPONSE_FORMAT}\n\nPotrebno je oko ${count} razlicitih recepata.`,
     messages: [
       {
         role: 'user',
