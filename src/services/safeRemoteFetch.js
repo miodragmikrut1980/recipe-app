@@ -57,9 +57,19 @@ async function resolvePublicUrl(rawUrl) {
 function requestPinned(url, address, headers) {
   const client = url.protocol === 'https:' ? https : http;
   return new Promise((resolve, reject) => {
-    const request = client.request(url, {
-      method: 'GET', headers, timeout: 8000,
-      lookup(_hostname, _options, callback) { callback(null, address.address, address.family); },
+    // Direktno postavljamo IP kao odrediste konekcije umesto custom "lookup"
+    // callback-a — pouzdanije u Node-u (custom lookup callback ume da izgubi
+    // adresu na pojedinim mrezama/verzijama, dajuci "Invalid IP address: undefined").
+    // servername/Host cuvaju original hostname radi TLS SNI i virtual hostinga.
+    const request = client.request({
+      protocol: url.protocol,
+      hostname: address.address,
+      port: url.port || (url.protocol === 'https:' ? 443 : 80),
+      path: `${url.pathname}${url.search}`,
+      method: 'GET',
+      headers,
+      timeout: 8000,
+      servername: url.hostname,
     }, (response) => {
       const chunks = [];
       let total = 0;
