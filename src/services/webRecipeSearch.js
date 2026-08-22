@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { randomUUID } from 'crypto';
+import { httpUrl, normalizeAiRecipe } from '../lib/validation.js';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -82,17 +83,20 @@ export async function findRecipesOnline(constraints, count = 6, topRatedOnly = f
   }
 
   const recipes = parsed.recipes || [];
-  return recipes.map((r) => ({
-    id: randomUUID(),
-    title: r.title || 'Recept sa interneta',
-    sourceUrl: r.sourceUrl || 'web-search',
-    sourcePlatform: 'other',
-    servings: r.servings ?? null,
-    ingredients: r.ingredients || [],
-    steps: r.steps || [],
-    prepTimeMinutes: r.prepTimeMinutes ?? null,
-    tags: r.tags || [],
-    nutritionPerServing: r.nutritionPerServing || null,
-    createdAt: new Date().toISOString(),
-  }));
+  return recipes.map((raw) => {
+    const r = normalizeAiRecipe(raw);
+    return {
+      id: randomUUID(),
+      title: r.title,
+      sourceUrl: httpUrl(raw.sourceUrl, 'sourceUrl'),
+      sourcePlatform: 'other',
+      servings: r.servings,
+      ingredients: r.ingredients,
+      steps: r.steps,
+      prepTimeMinutes: r.prepTimeMinutes,
+      tags: r.tags,
+      nutritionPerServing: r.nutritionPerServing,
+      createdAt: new Date().toISOString(),
+    };
+  });
 }

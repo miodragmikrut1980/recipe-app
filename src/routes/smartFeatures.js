@@ -9,6 +9,8 @@ import {
   customizeRecipe,
   generateWeeklyMealPlan,
 } from '../services/smartFeatures.js';
+import { integerValue, stringArray, stringValue, uuidValue } from '../lib/validation.js';
+import { sendRouteError } from '../lib/httpError.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -22,15 +24,16 @@ router.post('/suggest-recipes', async (req, res) => {
     return res.status(400).json({ error: 'Nedostaje "availableIngredients" (niz stringova)' });
   }
   try {
+    const validIngredients = stringArray(availableIngredients, 'availableIngredients', { min: 1, max: 100, itemMax: 100 });
     const savedRecipes = await listRecipes(req.user.id);
     if (savedRecipes.length === 0) {
       return res.json({ matches: [] });
     }
-    const matches = await suggestRecipesFromIngredients(availableIngredients, savedRecipes);
+    const matches = await suggestRecipesFromIngredients(validIngredients, savedRecipes);
     res.json({ matches });
   } catch (err) {
     console.error('Greska pri predlaganju recepata:', err);
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err, 'Predlaganje recepata nije uspelo');
   }
 });
 
@@ -44,17 +47,19 @@ router.post('/customize-recipe', async (req, res) => {
     return res.status(400).json({ error: 'Nedostaju "recipeId" ili "instruction"' });
   }
   try {
+    const validRecipeId = uuidValue(recipeId, 'recipeId');
+    const validInstruction = stringValue(instruction, 'instruction', { max: 1000 });
     const savedRecipes = await listRecipes(req.user.id);
-    const original = savedRecipes.find((r) => r.id === recipeId);
+    const original = savedRecipes.find((r) => r.id === validRecipeId);
     if (!original) {
       return res.status(404).json({ error: 'Recept nije pronadjen' });
     }
-    const customized = await customizeRecipe(original, instruction);
+    const customized = await customizeRecipe(original, validInstruction);
     const saved = await saveRecipe(customized, req.user.id);
     res.json({ recipe: saved });
   } catch (err) {
     console.error('Greska pri prilagodjavanju recepta:', err);
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err, 'Prilagođavanje recepta nije uspelo');
   }
 });
 
@@ -65,6 +70,8 @@ router.post('/customize-recipe', async (req, res) => {
 router.post('/meal-plan/generate', async (req, res) => {
   const { constraints, days = 7, favoritesOnly = false } = req.body;
   try {
+    const validDays = integerValue(days, 'days', { min: 1, max: 14, defaultValue: 7 });
+    const validConstraints = constraints == null ? undefined : stringValue(constraints, 'constraints', { required: false, max: 2000 });
     let savedRecipes = await listRecipes(req.user.id);
 
     if (favoritesOnly) {
@@ -81,7 +88,7 @@ router.post('/meal-plan/generate', async (req, res) => {
       return res.status(422).json({ error: 'Nemas jos sacuvanih recepata za generisanje plana.' });
     }
 
-    const plan = await generateWeeklyMealPlan(savedRecipes, constraints, days);
+    const plan = await generateWeeklyMealPlan(savedRecipes, validConstraints, validDays);
 
     if (plan.length === 0) {
       return res.status(422).json({
@@ -107,7 +114,7 @@ router.post('/meal-plan/generate', async (req, res) => {
     res.json({ entries: writtenEntries });
   } catch (err) {
     console.error('Greska pri generisanju plana:', err);
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err, 'Generisanje plana nije uspelo');
   }
 });
 
@@ -119,8 +126,10 @@ router.post('/meal-plan/generate', async (req, res) => {
 router.post('/meal-plan/generate-online', async (req, res) => {
   const { constraints, days = 7, topRatedOnly = false } = req.body;
   try {
-    const neededCount = Math.min(days * 2, 10); // rucak+vecera po danu, max 10
-    const foundRecipes = await findRecipesOnline(constraints, neededCount, topRatedOnly);
+    const validDays = integerValue(days, 'days', { min: 1, max: 14, defaultValue: 7 });
+    const validConstraints = constraints == null ? undefined : stringValue(constraints, 'constraints', { required: false, max: 2000 });
+    const neededCount = Math.min(validDays * 2, 10); // rucak+vecera po danu, max 10
+    const foundRecipes = await findRecipesOnline(validConstraints, neededCount, Boolean(topRatedOnly));
 
     if (foundRecipes.length === 0) {
       return res.status(422).json({
@@ -140,7 +149,7 @@ router.post('/meal-plan/generate-online', async (req, res) => {
     const writtenEntries = [];
     let idx = 0;
 
-    for (let d = 0; d < days; d++) {
+    for (let d = 0; d < validDays; d++) {
       for (const mealType of mealTypes) {
         const recipe = savedRecipes[idx % savedRecipes.length];
         idx++;
@@ -155,7 +164,7 @@ router.post('/meal-plan/generate-online', async (req, res) => {
     res.json({ entries: writtenEntries, recipesFound: savedRecipes.length });
   } catch (err) {
     console.error('Greska pri pretrazi recepata na internetu:', err);
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err, 'Pretraga i generisanje plana nisu uspeli');
   }
 });
 

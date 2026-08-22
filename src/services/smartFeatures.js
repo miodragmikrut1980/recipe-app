@@ -134,5 +134,18 @@ dayOffset je 0 za danas, 1 za sutra, itd. Koristi mealType vrednosti: "breakfast
     ],
   });
 
-  return extractJson(message).plan;
+  const plan = extractJson(message).plan;
+  if (!Array.isArray(plan) || plan.length > days * 3) throw new Error('AI plan nema očekivan format.');
+  const allowedIds = new Set(savedRecipes.map((recipe) => recipe.id));
+  const allowedMeals = new Set(['breakfast', 'lunch', 'dinner']);
+  const seen = new Set();
+  return plan.map((item) => {
+    if (!item || !Number.isInteger(item.dayOffset) || item.dayOffset < 0 || item.dayOffset >= days || !allowedMeals.has(item.mealType) || !allowedIds.has(item.recipeId)) {
+      throw new Error('AI plan sadrži nevažeću stavku. Probaj ponovo.');
+    }
+    const key = `${item.dayOffset}:${item.mealType}`;
+    if (seen.has(key)) throw new Error('AI plan sadrži dupliran obrok. Probaj ponovo.');
+    seen.add(key);
+    return { dayOffset: item.dayOffset, mealType: item.mealType, recipeId: item.recipeId };
+  });
 }

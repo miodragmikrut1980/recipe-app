@@ -1,61 +1,64 @@
 import OpenAI from 'openai';
-import ffmpeg from 'fluent-ffmpeg';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { randomUUID } from 'crypto';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 
+const run = promisify(execFile);
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-/**
- * Izvlaci audio track iz videa (mp3, mono, 64kbps) — video od 50MB postane
- * audio od ~2MB, sto resava Whisper-ov limit od 25MB i ubrzava obradu.
- * Zahteva ffmpeg instaliran na serveru (Railway/Render nixpacks ga imaju;
- * lokalno: apt install ffmpeg / brew install ffmpeg).
- */
-export function extractAudio(videoPath) {
-  const audioPath = path.join(os.tmpdir(), `${randomUUID()}.mp3`);
-  return new Promise((resolve, reject) => {
-    ffmpeg(videoPath)
-      .noVideo()
-      .audioCodec('libmp3lame')
-      .audioBitrate('64k')
-      .audioChannels(1)
-      .save(audioPath)
-      .on('end', () => resolve(audioPath))
-      .on('error', (err) => reject(new Error(`Ekstrakcija audio zapisa nije uspela: ${err.message}`)));
-  });
+async function runMediaCommand(binary, args) {
+  try { await run(binary, args, { timeout: 120000, maxBuffer: 1024 * 1024 }); }
+  catch (err) {
+    const detail = String(err.stderr || err.message).slice(0, 500);
+    throw new Error(`${binary} obrada nije uspela: ${detail}`);
+  }
 }
 
-/**
- * Izvlaci do 4 kadra iz videa (za fallback kad nema govora — recepti koji
- * su samo tekst na ekranu). Vraca listu putanja do JPG fajlova.
- */
-export function extractFrames(videoPath, count = 4) {
+export async function extractAudio(videoPath) {
+  const audioPath = path.join(os.tmpdir(), `${randomUUID()}.mp3`);
+  try {
+    await runMediaCommand('ffmpeg', ['-nostdin', '-hide_banner', '-loglevel', 'error', '-i', videoPath, '-vn', '-acodec', 'libmp3lame', '-b:a', '64k', '-ac', '1', '-y', audioPath]);
+    return audioPath;
+  } catch (err) {
+    fs.rm(audioPath, { force: true }, () => {});
+    throw err;
+  }
+}
+
+async function videoDuration(videoPath) {
+  const { stdout } = await run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', videoPath], { timeout: 30000 });
+  const duration = Number.parseFloat(stdout);
+  if (!Number.isFinite(duration) || duration <= 0) throw new Error('Trajanje videa nije moguće utvrditi');
+  return duration;
+}
+
+export async function extractFrames(videoPath, count = 4) {
   const dir = path.join(os.tmpdir(), randomUUID());
-  fs.mkdirSync(dir);
-  return new Promise((resolve, reject) => {
-    ffmpeg(videoPath)
-      .screenshots({ count, folder: dir, filename: 'frame-%i.jpg', size: '720x?' })
-      .on('end', () => {
-        const frames = fs.readdirSync(dir).map((f) => path.join(dir, f));
-        resolve(frames);
-      })
-      .on('error', (err) => reject(new Error(`Izvlacenje kadrova nije uspelo: ${err.message}`)));
-  });
+  await fs.promises.mkdir(dir, { mode: 0o700 });
+  try {
+    const duration = await videoDuration(videoPath);
+    const frames = Array.from({ length: count }, (_, index) => path.join(dir, `frame-${index + 1}.jpg`));
+    await Promise.all(frames.map((frame, index) => {
+      const second = Math.max(0, Math.min(duration - 0.05, duration * ((index + 1) / (count + 1))));
+      return runMediaCommand('ffmpeg', ['-nostdin', '-hide_banner', '-loglevel', 'error', '-ss', second.toFixed(3), '-i', videoPath, '-frames:v', '1', '-vf', 'scale=720:-2', '-q:v', '3', '-y', frame]);
+    }));
+    return frames;
+  } catch (err) {
+    await fs.promises.rm(dir, { recursive: true, force: true });
+    throw err;
+  }
 }
 
 export async function transcribeVideo(filePath) {
   let audioPath = null;
   try {
     audioPath = await extractAudio(filePath);
-    const transcription = await openai.audio.transcriptions.create({
-      file: fs.createReadStream(audioPath),
-      model: 'whisper-1',
-      // Bez "language" — Whisper sam detektuje (radi za srpski i engleski)
-    });
+    const transcription = await openai.audio.transcriptions.create({ file: fs.createReadStream(audioPath), model: 'whisper-1' });
     return transcription.text;
   } finally {
-    if (audioPath) fs.unlink(audioPath, () => {});
+    if (audioPath) fs.rm(audioPath, { force: true }, () => {});
   }
 }

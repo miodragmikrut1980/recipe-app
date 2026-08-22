@@ -7,6 +7,7 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
  * Mobilna app se loguje direktno preko Supabase-a i salje token uz svaki zahtev.
  */
 export async function requireAuth(req, res, next) {
+  if (req.user?.id) return next();
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) {
     console.warn(`401 (nedostaje token) na ${req.method} ${req.path}`);

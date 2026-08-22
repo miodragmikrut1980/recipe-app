@@ -9,6 +9,8 @@
  * standard i najblazi oblik, ali nije formalno odobren — svesna odluka
  * vlasnika proizvoda (vidi razgovor o UX pojednostavljenju).
  */
+import { fetchPublicHtml } from './safeRemoteFetch.js';
+
 const BROWSER_UA =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
 
@@ -58,18 +60,9 @@ function extractYouTubeDescription(html) {
  */
 export async function fetchLinkPreview(url) {
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 8000);
-
-    const response = await fetch(url, {
-      headers: { 'User-Agent': BROWSER_UA, 'Accept-Language': 'en' },
-      redirect: 'follow',
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
-
-    if (!response.ok) return null;
-    const html = await response.text();
+    const result = await fetchPublicHtml(url, { 'User-Agent': BROWSER_UA, 'Accept-Language': 'en' });
+    if (!result) return null;
+    const { html } = result;
 
     const description = extractMeta(html, 'og:description');
     const title = extractMeta(html, 'og:title');

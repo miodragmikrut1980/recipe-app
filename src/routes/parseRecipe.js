@@ -5,6 +5,7 @@ import { fetchLinkPreview, looksLikeRecipe } from '../services/linkPreview.js';
 import { fetchYouTubeDescription, isYouTubeUrl } from '../services/youtubeApi.js';
 import { saveRecipe, findPossibleDuplicate } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { httpUrl, stringValue } from '../lib/validation.js';
 
 const router = Router();
 
@@ -21,13 +22,15 @@ const router = Router();
  *    prosledjeni tekst (fallback, radi kao i do sada).
  */
 router.post('/parse-recipe', requireAuth, async (req, res) => {
-  const { url, text } = req.body;
+  let { url, text } = req.body;
 
   if (!url) {
     return res.status(400).json({ error: 'Nedostaje "url" u telu zahteva' });
   }
 
   try {
+    url = httpUrl(url);
+    text = text == null ? undefined : stringValue(text, 'text', { required: false, max: 50000 });
     let recipeText = text?.trim() || null;
 
     if (!recipeText) {
@@ -64,7 +67,7 @@ router.post('/parse-recipe', requireAuth, async (req, res) => {
     res.json({ recipe: savedRecipe, duplicateOf });
   } catch (err) {
     console.error('Greska pri parsiranju recepta:', err);
-    res.status(500).json({ error: err.message || 'Nepoznata greska' });
+    res.status(err.status || 500).json({ error: err.status ? err.message : 'Obrada recepta nije uspela' });
   }
 });
 

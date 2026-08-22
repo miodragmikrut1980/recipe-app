@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { createClient } from '@supabase/supabase-js';
 import { requireAuth } from '../middleware/auth.js';
+import { sendRouteError } from '../lib/httpError.js';
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 const router = Router();
@@ -18,7 +19,7 @@ router.get('/household', async (req, res) => {
 
     res.json({ household: profile?.households || null });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err, 'Učitavanje domaćinstva nije uspelo');
   }
 });
 
@@ -26,17 +27,17 @@ router.get('/household', async (req, res) => {
 router.post('/household', async (req, res) => {
   const { name } = req.body;
   try {
-    const { data: household, error } = await supabase
-      .from('households')
-      .insert({ name: name || 'Moje domaćinstvo' })
-      .select()
-      .single();
+    const { data: current, error: currentError } = await supabase.from('profiles').select('household_id').eq('id', req.user.id).maybeSingle();
+    if (currentError) throw new Error(currentError.message);
+    if (current?.household_id) return res.status(409).json({ error: 'Već pripadaš domaćinstvu. Prvo ga napusti.' });
+    const { data: household, error } = await supabase.rpc('create_household_for_user', {
+      p_user_id: req.user.id,
+      p_name: typeof name === 'string' ? name : 'Moje domaćinstvo',
+    }).single();
     if (error) throw new Error(error.message);
-
-    await supabase.from('profiles').update({ household_id: household.id }).eq('id', req.user.id);
     res.json({ household });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err, 'Kreiranje domaćinstva nije uspelo');
   }
 });
 
@@ -45,28 +46,29 @@ router.post('/household/join', async (req, res) => {
   const { inviteCode } = req.body;
   if (!inviteCode) return res.status(400).json({ error: 'Nedostaje "inviteCode"' });
   try {
-    const { data: household } = await supabase
-      .from('households')
-      .select()
-      .eq('invite_code', inviteCode.toLowerCase().trim())
-      .maybeSingle();
-
-    if (!household) return res.status(404).json({ error: 'Kod nije pronađen' });
-
-    await supabase.from('profiles').update({ household_id: household.id }).eq('id', req.user.id);
+    const { data: current, error: currentError } = await supabase.from('profiles').select('household_id').eq('id', req.user.id).maybeSingle();
+    if (currentError) throw new Error(currentError.message);
+    if (current?.household_id) return res.status(409).json({ error: 'Već pripadaš domaćinstvu. Prvo ga napusti.' });
+    const { data: household, error } = await supabase.rpc('join_household_for_user', {
+      p_user_id: req.user.id,
+      p_invite_code: inviteCode.toLowerCase().trim(),
+    }).single();
+    if (error?.message?.includes('INVITE_NOT_FOUND')) return res.status(404).json({ error: 'Kod nije pronađen' });
+    if (error) throw new Error(error.message);
     res.json({ household });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err, 'Pridruživanje domaćinstvu nije uspelo');
   }
 });
 
 /** Napusti domacinstvo */
 router.post('/household/leave', async (req, res) => {
   try {
-    await supabase.from('profiles').update({ household_id: null }).eq('id', req.user.id);
+    const { error } = await supabase.from('profiles').update({ household_id: null }).eq('id', req.user.id);
+    if (error) throw new Error(error.message);
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendRouteError(res, err, 'Napuštanje domaćinstva nije uspelo');
   }
 });
 

@@ -1,8 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
+import { getAccessibleRecipe } from './db.js';
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
 export async function setMealPlanEntry({ date, mealType, recipeId }, userId) {
+  await getAccessibleRecipe(recipeId, userId);
   const { data, error } = await supabase
     .from('meal_plan')
     .upsert(

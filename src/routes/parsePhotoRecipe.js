@@ -6,9 +6,18 @@ import Anthropic from '@anthropic-ai/sdk';
 import { randomUUID } from 'crypto';
 import { saveRecipe, findPossibleDuplicate } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { normalizeAiRecipe } from '../lib/validation.js';
+import { sendRouteError } from '../lib/httpError.js';
 
 const router = Router();
-const upload = multer({ dest: os.tmpdir(), limits: { fileSize: 10 * 1024 * 1024 } });
+const allowedImageTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+const upload = multer({
+  dest: os.tmpdir(),
+  limits: { fileSize: 10 * 1024 * 1024, files: 1 },
+  fileFilter(_req, file, callback) {
+    callback(allowedImageTypes.has(file.mimetype) ? null : Object.assign(new Error('Dozvoljene su JPEG, PNG, WebP i GIF slike'), { status: 415 }), allowedImageTypes.has(file.mimetype));
+  },
+});
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const VISION_PROMPT = `Pogledaj fotografiju recepta (moze biti stranica iz kuvara, rukom pisana kartica, ili skrinsot) i vrati ISKLJUCIVO validan JSON, bez dodatnog teksta:
@@ -51,19 +60,19 @@ router.post('/parse-recipe-photo', requireAuth, upload.single('photo'), async (r
 
     const textBlock = message.content.find((b) => b.type === 'text');
     const cleaned = textBlock.text.replace(/```json|```/g, '').trim();
-    const parsed = JSON.parse(cleaned);
+    const parsed = normalizeAiRecipe(JSON.parse(cleaned));
 
     const recipe = {
       id: randomUUID(),
-      title: parsed.title || 'Nepoznat recept',
+      title: parsed.title,
       sourceUrl: 'scanned-photo',
       sourcePlatform: 'other',
       servings: parsed.servings ?? null,
-      ingredients: parsed.ingredients || [],
-      steps: parsed.steps || [],
+      ingredients: parsed.ingredients,
+      steps: parsed.steps,
       prepTimeMinutes: parsed.prepTimeMinutes ?? null,
-      tags: parsed.tags || [],
-      nutritionPerServing: parsed.nutritionPerServing || null,
+      tags: parsed.tags,
+      nutritionPerServing: parsed.nutritionPerServing,
       createdAt: new Date().toISOString(),
     };
 
@@ -72,7 +81,7 @@ router.post('/parse-recipe-photo', requireAuth, upload.single('photo'), async (r
     res.json({ recipe: savedRecipe, duplicateOf });
   } catch (err) {
     console.error('Greska pri skeniranju recepta:', err);
-    res.status(500).json({ error: err.message || 'Nepoznata greska pri obradi fotografije' });
+    sendRouteError(res, err, 'Obrada fotografije nije uspela');
   } finally {
     fs.unlink(req.file.path, () => {});
   }

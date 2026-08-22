@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { randomUUID } from 'crypto';
+import { normalizeAiRecipe } from '../lib/validation.js';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -46,19 +47,21 @@ export async function parseRecipeFromText(rawText, sourceUrl, extraContext = nul
   }
 
   const cleaned = textBlock.text.replace(/```json|```/g, '').trim();
-  const parsed = JSON.parse(cleaned);
+  let parsed;
+  try { parsed = normalizeAiRecipe(JSON.parse(cleaned)); }
+  catch (err) { throw Object.assign(new Error('AI nije vratio validan recept. Probaj ponovo.'), { status: err.status === 422 ? 422 : 502 }); }
 
   return {
     id: randomUUID(),
-    title: parsed.title || 'Nepoznat recept',
+    title: parsed.title,
     sourceUrl,
     sourcePlatform: detectPlatform(sourceUrl),
     servings: parsed.servings ?? null,
-    ingredients: parsed.ingredients || [],
-    steps: parsed.steps || [],
-    prepTimeMinutes: parsed.prepTimeMinutes ?? undefined,
-    tags: parsed.tags || [],
-    nutritionPerServing: parsed.nutritionPerServing || null,
+    ingredients: parsed.ingredients,
+    steps: parsed.steps,
+    prepTimeMinutes: parsed.prepTimeMinutes,
+    tags: parsed.tags,
+    nutritionPerServing: parsed.nutritionPerServing,
     createdAt: new Date().toISOString(),
   };
 }

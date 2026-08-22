@@ -23,7 +23,7 @@ export async function registerPushToken(userId, token) {
  * smeju da obore glavnu operaciju (npr. cuvanje ocene).
  */
 export async function sendPushNotification(tokens, title, body, data = {}) {
-  const validTokens = tokens.filter((t) => t && t.startsWith('ExponentPushToken'));
+  const validTokens = tokens.filter((t) => typeof t === 'string' && /^(ExponentPushToken|ExpoPushToken)\[[A-Za-z0-9_-]+\]$/.test(t));
   if (validTokens.length === 0) return;
 
   const messages = validTokens.map((to) => ({ to, sound: 'default', title, body, data }));

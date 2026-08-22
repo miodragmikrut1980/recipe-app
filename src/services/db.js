@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { HttpError } from '../lib/httpError.js';
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
@@ -9,11 +10,12 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
  */
 
 export async function saveRecipe(recipe, userId) {
-  const { data: profile } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from('profiles')
     .select('household_id')
     .eq('id', userId)
     .maybeSingle();
+  if (profileError) throw new Error(`Učitavanje profila nije uspelo: ${profileError.message}`);
 
   const { data, error } = await supabase
     .from('recipes')
@@ -60,11 +62,12 @@ export async function findPossibleDuplicate(title, userId, excludeId) {
 }
 
 export async function listRecipes(userId) {
-  const { data: profile } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from('profiles')
     .select('household_id')
     .eq('id', userId)
     .maybeSingle();
+  if (profileError) throw new Error(`Učitavanje profila nije uspelo: ${profileError.message}`);
 
   let query = supabase.from('recipes').select('*').order('created_at', { ascending: false });
 
@@ -76,6 +79,36 @@ export async function listRecipes(userId) {
 
   const { data, error } = await query;
   if (error) throw new Error(`Ucitavanje recepata nije uspelo: ${error.message}`);
+  return data.map(mapRowToRecipe);
+}
+
+export async function getAccessibleRecipe(id, userId) {
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles').select('household_id').eq('id', userId).maybeSingle();
+  if (profileError) throw new Error(`Učitavanje profila nije uspelo: ${profileError.message}`);
+
+  let query = supabase.from('recipes').select('*').eq('id', id);
+  query = profile?.household_id
+    ? query.or(`user_id.eq.${userId},household_id.eq.${profile.household_id}`)
+    : query.eq('user_id', userId);
+  const { data, error } = await query.maybeSingle();
+  if (error) throw new Error(`Učitavanje recepta nije uspelo: ${error.message}`);
+  if (!data) throw new HttpError(404, 'Recept nije pronađen');
+  return mapRowToRecipe(data);
+}
+
+export async function getAccessibleRecipesByIds(ids, userId) {
+  const uniqueIds = [...new Set(ids)];
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles').select('household_id').eq('id', userId).maybeSingle();
+  if (profileError) throw new Error(`Učitavanje profila nije uspelo: ${profileError.message}`);
+  let query = supabase.from('recipes').select('*').in('id', uniqueIds);
+  query = profile?.household_id
+    ? query.or(`user_id.eq.${userId},household_id.eq.${profile.household_id}`)
+    : query.eq('user_id', userId);
+  const { data, error } = await query;
+  if (error) throw new Error(`Učitavanje recepata nije uspelo: ${error.message}`);
+  if (data.length !== uniqueIds.length) throw new HttpError(404, 'Jedan ili više recepata nije pronađeno');
   return data.map(mapRowToRecipe);
 }
 
@@ -101,8 +134,9 @@ export async function updateRecipe(id, updates, userId) {
 }
 
 export async function deleteRecipe(id, userId) {
-  const { error } = await supabase.from('recipes').delete().eq('id', id).eq('user_id', userId);
+  const { data, error } = await supabase.from('recipes').delete().eq('id', id).eq('user_id', userId).select('id').maybeSingle();
   if (error) throw new Error(`Brisanje recepta nije uspelo: ${error.message}`);
+  if (!data) throw new HttpError(404, 'Recept nije pronađen ili nije u vašem vlasništvu');
 }
 
 function mapRowToRecipe(row) {

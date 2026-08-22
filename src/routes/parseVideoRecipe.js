@@ -2,19 +2,29 @@ import { Router } from 'express';
 import multer from 'multer';
 import fs from 'fs';
 import os from 'os';
+import path from 'path';
 import Anthropic from '@anthropic-ai/sdk';
 import { randomUUID } from 'crypto';
 import { transcribeVideo, extractFrames } from '../services/transcription.js';
 import { parseRecipeFromText } from '../services/aiParser.js';
 import { saveRecipe, findPossibleDuplicate } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { normalizeAiRecipe, stringValue } from '../lib/validation.js';
+import { sendRouteError } from '../lib/httpError.js';
 
 const router = Router();
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // Limit podignut na 100MB — audio se izvlaci pre slanja Whisper-u pa veliki
 // video vise nije problem za transkripciju
-const upload = multer({ dest: os.tmpdir(), limits: { fileSize: 100 * 1024 * 1024 } });
+const upload = multer({
+  dest: os.tmpdir(),
+  limits: { fileSize: 100 * 1024 * 1024, files: 1 },
+  fileFilter(_req, file, callback) {
+    const allowed = file.mimetype.startsWith('video/');
+    callback(allowed ? null : Object.assign(new Error('Fajl mora biti video'), { status: 415 }), allowed);
+  },
+});
 
 const FRAMES_PROMPT = `Ovo su kadrovi iz videa recepta (recept je verovatno prikazan kao tekst na ekranu). Procitaj sav vidljiv tekst i sastavi recept. Vrati ISKLJUCIVO validan JSON:
 {"title": "...", "servings": broj|null, "ingredients": [{"name": "...", "amount": "..."}], "steps": ["..."], "prepTimeMinutes": broj|null, "tags": ["..."], "nutritionPerServing": {"calories": broj|null, "proteinGrams": broj|null, "carbsGrams": broj|null, "fatGrams": broj|null}}
@@ -39,23 +49,24 @@ async function parseFromFrames(videoPath, sourceUrl) {
     });
 
     const textBlock = message.content.find((b) => b.type === 'text');
-    const parsed = JSON.parse(textBlock.text.replace(/```json|```/g, '').trim());
+    const parsed = normalizeAiRecipe(JSON.parse(textBlock.text.replace(/```json|```/g, '').trim()));
 
     return {
       id: randomUUID(),
-      title: parsed.title || 'Nepoznat recept',
+      title: parsed.title,
       sourceUrl,
       sourcePlatform: 'other',
       servings: parsed.servings ?? null,
-      ingredients: parsed.ingredients || [],
-      steps: parsed.steps || [],
+      ingredients: parsed.ingredients,
+      steps: parsed.steps,
       prepTimeMinutes: parsed.prepTimeMinutes ?? null,
-      tags: parsed.tags || [],
-      nutritionPerServing: parsed.nutritionPerServing || null,
+      tags: parsed.tags,
+      nutritionPerServing: parsed.nutritionPerServing,
       createdAt: new Date().toISOString(),
     };
   } finally {
     for (const f of frames) fs.unlink(f, () => {});
+    if (frames[0]) fs.rm(path.dirname(frames[0]), { recursive: true, force: true }, () => {});
   }
 }
 
@@ -72,7 +83,9 @@ router.post('/parse-recipe-video', requireAuth, upload.single('video'), async (r
     return res.status(400).json({ error: 'Nedostaje video fajl ("video" polje u form-data)' });
   }
 
-  const caption = req.body?.caption?.trim() || null;
+  let caption;
+  try { caption = req.body?.caption == null ? null : stringValue(req.body.caption, 'caption', { required: false, max: 50000 }) || null; }
+  catch (err) { fs.unlink(req.file.path, () => {}); return res.status(err.status || 400).json({ error: err.message }); }
 
   try {
     let recipe;
@@ -101,7 +114,7 @@ router.post('/parse-recipe-video', requireAuth, upload.single('video'), async (r
     res.json({ recipe: savedRecipe, transcript: hasSpeech ? transcript : null, duplicateOf });
   } catch (err) {
     console.error('Greska pri obradi video recepta:', err);
-    res.status(500).json({ error: err.message || 'Nepoznata greska pri obradi videa' });
+    sendRouteError(res, err, 'Obrada videa nije uspela');
   } finally {
     fs.unlink(req.file.path, () => {});
   }

@@ -9,6 +9,8 @@ cp .env.example .env
 npm run dev
 ```
 
+Produkcija zahteva Node.js 22+ i eksplicitno podešen `CORS_ORIGINS` (više origin-a se odvaja zarezom).
+
 **Zahteva ffmpeg** za obradu videa: `apt install ffmpeg` (Linux) / `brew install ffmpeg` (Mac). Railway/Render ga imaju automatski preko nixpacks.
 
 ## Supabase setup
@@ -18,6 +20,8 @@ npm run dev
 3. Project Settings → API: kopiraj URL i service_role ključ u `.env`
 4. Authentication → Providers: uključi Email provider
 
+Za postojeći Supabase projekat ne pokreći celu šemu ponovo: izvrši samo `migrations/20260821_security_hardening.sql` u SQL Editor-u.
+
 ## Autentifikacija
 
 Sve rute (osim `/health`) zahtevaju `Authorization: Bearer <token>` header sa Supabase Auth JWT-om. Mobilna app se loguje direktno preko Supabase-a (anon ključ) i šalje token uz svaki zahtev. Backend verifikuje token i filtrira sve podatke po `user_id`.
@@ -26,11 +30,21 @@ Rate limiting: 100 zahteva/15min po IP-u opšte, 20/15min za AI rute.
 
 ## Endpointi
 
-**Recepti:** `GET /recipes`, `DELETE /recipes/:id`
+**Recepti:** `GET /recipes`, `PUT /recipes/:id`, `DELETE /recipes/:id`
 **Parsiranje:** `POST /parse-recipe` (link+caption), `POST /parse-recipe-video` (video fajl + opcioni caption; audio se izvlači ffmpeg-om, ako nema govora čitaju se kadrovi), `POST /parse-recipe-photo` (fotografija kuvara)
 **Pametne funkcije:** `POST /suggest-recipes` (šta mogu da skuvam), `POST /customize-recipe` (vegansko/pola porcije...), `POST /meal-plan/generate` (AI nedeljni plan)
 **Plan i kupovina:** `GET/PUT/DELETE /meal-plan`, `POST /shopping-list/generate`, `GET/PUT /shopping-list`
 **Domaćinstvo:** `GET/POST /household`, `POST /household/join` (invite kod), `POST /household/leave` — članovi dele recepte
+**Ocene/push:** `GET /ratings`, `PUT /recipes/:id/rating`, `POST /push-token`
+
+## Bezbednosne granice
+
+- Backend koristi Supabase `service_role`, zato svaka putanja koja prima recipe ID proverava vlasništvo ili članstvo u domaćinstvu.
+- Import URL-a dozvoljava samo javne HTTP(S) adrese. Localhost, privatni/link-local opsezi, interni domeni, DNS rebinding, opasni redirect-i i HTML veći od 2 MB se blokiraju.
+- Browser CORS je allowlista iz `CORS_ORIGINS`; native klijenti bez `Origin` header-a su dozvoljeni.
+- JSON body je ograničen na 256 KB, fotografija na 10 MB, video na 100 MB. MIME tip se proverava pre obrade.
+- AI odgovori se validiraju pre upisa, a nutritivne vrednosti su samo procena.
+- Invite kod domaćinstva je 128-bitni nasumični token. Kreiranje i pridruživanje su atomske SQL funkcije dostupne samo `service_role` ulozi.
 
 ## Tok obrade videa
 
@@ -41,15 +55,26 @@ Rate limiting: 100 zahteva/15min po IP-u opšte, 20/15min za AI rute.
 5. Caption (ako je poslat) se kombinuje sa transkriptom za najbolji rezultat
 6. Claude strukturira recept (domaće mere: šolja, kašika...) + procena nutricije
 
-## Smoke test (pokreni ovo prvo!)
+## Testovi
+
+Brzi lokalni testovi ne zahtevaju API ključeve i ne troše AI kredit:
+
+```bash
+npm test
+npm run check
+```
+
+Pokrivaju SSRF privatne IPv4/IPv6 opsege, URL/ulaznu validaciju, granice AI recepta i spajanje liste za kupovinu.
+
+## Integracioni smoke test
 
 Automatska provera svih endpointa — sama pravi test korisnika, dobija token i prolazi kroz ceo API:
 
 ```bash
 npm run dev        # u jednom terminalu
-npm test           # u drugom terminalu
+npm run test:smoke # u drugom terminalu
 ```
 
 Skripta ispisuje ✅/❌ za svaki endpoint i rezime na kraju. Ako nešto padne, pogledaj logove servera u prvom terminalu za tačnu grešku — nju mi pošalji i rešavamo.
 
-Napomena: test troši male količine Claude API kredita (2-3 poziva).
+Napomena: smoke test koristi pravi Supabase projekat i troši male količine Claude API kredita (2-3 poziva). Koristi zaseban test projekat, ne produkcionu bazu.

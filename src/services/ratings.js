@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { sendPushNotification } from './pushNotifications.js';
+import { getAccessibleRecipe } from './db.js';
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
@@ -10,6 +11,7 @@ const FAVORITE_THRESHOLD = 4; // ocena 4 ili 5 = "omiljeno"
  * korisnik je deo domacinstva, obavesti ostale clanove push notifikacijom.
  */
 export async function setRating(recipeId, userId, rating) {
+  await getAccessibleRecipe(recipeId, userId);
   const { data, error } = await supabase
     .from('recipe_ratings')
     .upsert({ recipe_id: recipeId, user_id: userId, rating }, { onConflict: 'recipe_id,user_id' })
