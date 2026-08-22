@@ -29,7 +29,7 @@ function extractVideoId(url) {
  */
 export async function fetchYouTubeDescription(url) {
   if (!API_KEY) {
-    console.warn('YOUTUBE_API_KEY nije podesen — YouTube linkovi idu na og: fallback');
+    logger.warn('youtube_api_key_missing');
     return null;
   }
 
@@ -40,7 +40,7 @@ export async function fetchYouTubeDescription(url) {
     const apiUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=${API_KEY}`;
     const response = await fetch(apiUrl);
     if (!response.ok) {
-      console.warn(`YouTube API greska: ${response.status}`);
+      logger.warn('youtube_api_rejected', { status: response.status });
       return null;
     }
     const data = await response.json();
@@ -49,7 +49,7 @@ export async function fetchYouTubeDescription(url) {
 
     return { caption: snippet.description || '', title: snippet.title || null };
   } catch (err) {
-    console.warn(`YouTube API poziv nije uspeo: ${err.message}`);
+    logger.warn('youtube_api_failed', { errorName: err?.name || 'Error' });
     return null;
   }
 }
@@ -57,3 +57,4 @@ export async function fetchYouTubeDescription(url) {
 export function isYouTubeUrl(url) {
   return /youtube\.com|youtu\.be/.test(url);
 }
+import { logger } from '../lib/logger.js';

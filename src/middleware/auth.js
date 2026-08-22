@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { logger } from '../lib/logger.js';
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
@@ -10,7 +11,7 @@ export async function requireAuth(req, res, next) {
   if (req.user?.id) return next();
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) {
-    console.warn(`401 (nedostaje token) na ${req.method} ${req.path}`);
+    logger.warn('auth_missing_token', { requestId: req.requestId, method: req.method, path: req.path });
     return res.status(401).json({ error: 'Nedostaje autorizacioni token' });
   }
 
@@ -18,7 +19,7 @@ export async function requireAuth(req, res, next) {
   const { data, error } = await supabase.auth.getUser(token);
 
   if (error || !data?.user) {
-    console.warn(`401 (nevazeci token) na ${req.method} ${req.path}: ${error?.message || 'nema usera'}`);
+    logger.warn('auth_invalid_token', { requestId: req.requestId, method: req.method, path: req.path });
     return res.status(401).json({ error: 'Nevažeći ili istekao token' });
   }
 

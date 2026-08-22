@@ -127,9 +127,10 @@ export async function updateRecipe(id, updates, userId) {
     .eq('id', id)
     .eq('user_id', userId) // samo vlasnik sme da menja
     .select()
-    .single();
+    .maybeSingle();
 
   if (error) throw new Error(`Izmena recepta nije uspela: ${error.message}`);
+  if (!data) throw new HttpError(404, 'Recept nije pronađen ili nije u vašem vlasništvu');
   return mapRowToRecipe(data);
 }
 

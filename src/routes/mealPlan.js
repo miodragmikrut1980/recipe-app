@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { setMealPlanEntry, removeMealPlanEntry, getMealPlanRange } from '../services/mealPlan.js';
 import { requireAuth } from '../middleware/auth.js';
 import { dateValue, enumValue, uuidValue } from '../lib/validation.js';
+import { recordHouseholdActivity, requireHouseholdAdult } from '../services/householdAccess.js';
 
 const router = Router();
 router.use('/meal-plan', requireAuth);
@@ -22,26 +23,28 @@ router.get('/meal-plan', async (req, res) => {
   }
 });
 
-router.put('/meal-plan', async (req, res) => {
+router.put('/meal-plan', requireHouseholdAdult, async (req, res) => {
   const { date, mealType, recipeId } = req.body;
   if (!date || !mealType || !recipeId) {
     return res.status(400).json({ error: 'Nedostaju "date", "mealType" ili "recipeId"' });
   }
   try {
     const entry = await setMealPlanEntry({ date: dateValue(date, 'date'), mealType: enumValue(mealType, 'mealType', ['breakfast', 'lunch', 'dinner']), recipeId: uuidValue(recipeId, 'recipeId') }, req.user.id);
+    await recordHouseholdActivity(req.user.id, { action: 'meal_planned', entityType: 'meal_plan', entityId: recipeId, summary: `Obrok je postavljen za ${date}` });
     res.json({ entry });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.status ? err.message : 'Čuvanje plana nije uspelo' });
   }
 });
 
-router.delete('/meal-plan', async (req, res) => {
+router.delete('/meal-plan', requireHouseholdAdult, async (req, res) => {
   const { date, mealType } = req.query;
   if (!date || !mealType) {
     return res.status(400).json({ error: 'Nedostaju "date" ili "mealType" query parametri' });
   }
   try {
     await removeMealPlanEntry({ date: dateValue(date, 'date'), mealType: enumValue(mealType, 'mealType', ['breakfast', 'lunch', 'dinner']) }, req.user.id);
+    await recordHouseholdActivity(req.user.id, { action: 'meal_removed', entityType: 'meal_plan', summary: `Obrok je uklonjen za ${date}` });
     res.json({ success: true });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.status ? err.message : 'Brisanje plana nije uspelo' });

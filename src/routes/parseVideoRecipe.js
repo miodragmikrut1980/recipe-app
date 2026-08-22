@@ -8,9 +8,12 @@ import { randomUUID } from 'crypto';
 import { transcribeVideo, extractFrames } from '../services/transcription.js';
 import { parseRecipeFromText } from '../services/aiParser.js';
 import { saveRecipe, findPossibleDuplicate } from '../services/db.js';
+import { recordHouseholdActivity } from '../services/householdAccess.js';
 import { requireAuth } from '../middleware/auth.js';
 import { normalizeAiRecipe, stringValue } from '../lib/validation.js';
 import { sendRouteError } from '../lib/httpError.js';
+import { verifyUploadedFile } from '../lib/fileSignature.js';
+import { logger } from '../lib/logger.js';
 
 const router = Router();
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -88,13 +91,14 @@ router.post('/parse-recipe-video', requireAuth, upload.single('video'), async (r
   catch (err) { fs.unlink(req.file.path, () => {}); return res.status(err.status || 400).json({ error: err.message }); }
 
   try {
+    verifyUploadedFile(req.file.path, 'video');
     let recipe;
     let transcript = null;
 
     try {
       transcript = await transcribeVideo(req.file.path);
     } catch (err) {
-      console.warn('Transkripcija nije uspela, idem na kadrove:', err.message);
+      logger.warn('video_transcription_fallback', { requestId: req.requestId, errorName: err?.name || 'Error' });
     }
 
     const hasSpeech = transcript && transcript.trim().length >= 30;
@@ -110,11 +114,12 @@ router.post('/parse-recipe-video', requireAuth, upload.single('video'), async (r
     }
 
     const savedRecipe = await saveRecipe(recipe, req.user.id);
+    await recordHouseholdActivity(req.user.id, { action: 'recipe_added', entityType: 'recipe', entityId: savedRecipe.id, summary: `Dodat recept iz videa: ${savedRecipe.title}` });
     const duplicateOf = await findPossibleDuplicate(savedRecipe.title, req.user.id, savedRecipe.id).catch(() => null);
     res.json({ recipe: savedRecipe, transcript: hasSpeech ? transcript : null, duplicateOf });
   } catch (err) {
-    console.error('Greska pri obradi video recepta:', err);
-    sendRouteError(res, err, 'Obrada videa nije uspela');
+    logger.error('recipe_video_failed', err, { requestId: req.requestId });
+    sendRouteError(res, err, 'Obrada videa nije uspela', req.requestId);
   } finally {
     fs.unlink(req.file.path, () => {});
   }

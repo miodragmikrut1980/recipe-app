@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { listRecipes, saveRecipe } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
-import { setMealPlanEntry } from '../services/mealPlan.js';
 import { findRecipesOnline } from '../services/webRecipeSearch.js';
 import { getMyRatings } from '../services/ratings.js';
 import {
@@ -11,6 +10,11 @@ import {
 } from '../services/smartFeatures.js';
 import { integerValue, stringArray, stringValue, uuidValue } from '../lib/validation.js';
 import { sendRouteError } from '../lib/httpError.js';
+import { logger } from '../lib/logger.js';
+import { beginOperation, abandonOperation } from '../services/idempotency.js';
+import { buildPlanEntries, saveGeneratedRecipesAndPlan, upsertMealPlanEntries } from '../services/transactionalPlan.js';
+import { claimAiBudget } from '../services/aiBudget.js';
+import { recordHouseholdActivity, requireHouseholdAdult } from '../services/householdAccess.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -32,8 +36,8 @@ router.post('/suggest-recipes', async (req, res) => {
     const matches = await suggestRecipesFromIngredients(validIngredients, savedRecipes);
     res.json({ matches });
   } catch (err) {
-    console.error('Greska pri predlaganju recepata:', err);
-    sendRouteError(res, err, 'Predlaganje recepata nije uspelo');
+    logger.error('recipe_suggestion_failed', err, { requestId: req.requestId });
+    sendRouteError(res, err, 'Predlaganje recepata nije uspelo', req.requestId);
   }
 });
 
@@ -56,10 +60,11 @@ router.post('/customize-recipe', async (req, res) => {
     }
     const customized = await customizeRecipe(original, validInstruction);
     const saved = await saveRecipe(customized, req.user.id);
+    await recordHouseholdActivity(req.user.id, { action: 'recipe_added', entityType: 'recipe', entityId: saved.id, summary: `Dodata prilagođena verzija: ${saved.title}` });
     res.json({ recipe: saved });
   } catch (err) {
-    console.error('Greska pri prilagodjavanju recepta:', err);
-    sendRouteError(res, err, 'Prilagođavanje recepta nije uspelo');
+    logger.error('recipe_customization_failed', err, { requestId: req.requestId });
+    sendRouteError(res, err, 'Prilagođavanje recepta nije uspelo', req.requestId);
   }
 });
 
@@ -67,8 +72,10 @@ router.post('/customize-recipe', async (req, res) => {
  * Generisanje nedeljnog plana — POST { constraints?, days? }
  * Odmah upisuje generisan plan u meal_plan tabelu.
  */
-router.post('/meal-plan/generate', async (req, res) => {
+router.post('/meal-plan/generate', requireHouseholdAdult, async (req, res) => {
   const { constraints, days = 7, favoritesOnly = false } = req.body;
+  const operation = 'meal-plan-generate';
+  let idempotency;
   try {
     const validDays = integerValue(days, 'days', { min: 1, max: 14, defaultValue: 7 });
     const validConstraints = constraints == null ? undefined : stringValue(constraints, 'constraints', { required: false, max: 2000 });
@@ -88,33 +95,28 @@ router.post('/meal-plan/generate', async (req, res) => {
       return res.status(422).json({ error: 'Nemas jos sacuvanih recepata za generisanje plana.' });
     }
 
+    idempotency = await beginOperation(req.user.id, operation, req.headers['idempotency-key']);
+    if (idempotency.cached) return res.json(idempotency.response);
+    await claimAiBudget(req.user.id, 3);
+
     const plan = await generateWeeklyMealPlan(savedRecipes, validConstraints, validDays);
 
     if (plan.length === 0) {
+      await abandonOperation(req.user.id, operation, idempotency.key);
       return res.status(422).json({
         error: 'Nijedan sačuvan recept ne odgovara ovim ograničenjima. Probaj šira ograničenja ili sačuvaj još recepata.',
       });
     }
 
-    const today = new Date();
-    const writtenEntries = [];
-    for (const item of plan) {
-      const date = new Date(today);
-      date.setDate(today.getDate() + item.dayOffset);
-      // Lokalne komponente umesto toISOString (UTC) da datum ne sklizne za dan
-      const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-      const entry = await setMealPlanEntry({
-        date: dateStr,
-        mealType: item.mealType,
-        recipeId: item.recipeId,
-      }, req.user.id);
-      writtenEntries.push(entry);
-    }
-
-    res.json({ entries: writtenEntries });
+    const entries = buildPlanEntries(plan, new Date(), savedRecipes.map((recipe) => recipe.id));
+    const writtenEntries = await upsertMealPlanEntries(entries, req.user.id, { operation, key: idempotency.key });
+    const response = { entries: writtenEntries };
+    await recordHouseholdActivity(req.user.id, { action: 'meal_planned', entityType: 'meal_plan', summary: `AI plan je napravljen · ${writtenEntries.length} obroka` });
+    res.json(response);
   } catch (err) {
-    console.error('Greska pri generisanju plana:', err);
-    sendRouteError(res, err, 'Generisanje plana nije uspelo');
+    await abandonOperation(req.user.id, operation, idempotency?.key).catch(() => {});
+    logger.error('meal_plan_generation_failed', err, { requestId: req.requestId });
+    sendRouteError(res, err, 'Generisanje plana nije uspelo', req.requestId);
   }
 });
 
@@ -123,15 +125,21 @@ router.post('/meal-plan/generate', async (req, res) => {
  * dobro ocenjene recepte, sacuvaj ih kao prave recepte u kolekciji, i
  * odmah sastavi plan za trazeni broj dana (rucak + vecera svaki dan).
  */
-router.post('/meal-plan/generate-online', async (req, res) => {
+router.post('/meal-plan/generate-online', requireHouseholdAdult, async (req, res) => {
   const { constraints, days = 7, topRatedOnly = false } = req.body;
+  const operation = 'meal-plan-generate-online';
+  let idempotency;
   try {
     const validDays = integerValue(days, 'days', { min: 1, max: 14, defaultValue: 7 });
     const validConstraints = constraints == null ? undefined : stringValue(constraints, 'constraints', { required: false, max: 2000 });
+    idempotency = await beginOperation(req.user.id, operation, req.headers['idempotency-key']);
+    if (idempotency.cached) return res.json(idempotency.response);
+    await claimAiBudget(req.user.id, 6);
     const neededCount = Math.min(validDays * 2, 10); // rucak+vecera po danu, max 10
     const foundRecipes = await findRecipesOnline(validConstraints, neededCount, Boolean(topRatedOnly));
 
     if (foundRecipes.length === 0) {
+      await abandonOperation(req.user.id, operation, idempotency.key);
       return res.status(422).json({
         error: topRatedOnly
           ? 'Nisam pronašao dovoljno vrhunski ocenjenih recepata za ova ograničenja. Probaj šira ograničenja.'
@@ -139,32 +147,26 @@ router.post('/meal-plan/generate-online', async (req, res) => {
       });
     }
 
-    const savedRecipes = [];
-    for (const recipe of foundRecipes) {
-      savedRecipes.push(await saveRecipe(recipe, req.user.id));
-    }
-
-    const today = new Date();
     const mealTypes = ['lunch', 'dinner'];
-    const writtenEntries = [];
+    const plan = [];
     let idx = 0;
 
     for (let d = 0; d < validDays; d++) {
       for (const mealType of mealTypes) {
-        const recipe = savedRecipes[idx % savedRecipes.length];
+        const recipe = foundRecipes[idx % foundRecipes.length];
         idx++;
-        const date = new Date(today);
-        date.setDate(today.getDate() + d);
-        const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-        const entry = await setMealPlanEntry({ date: dateStr, mealType, recipeId: recipe.id }, req.user.id);
-        writtenEntries.push(entry);
+        plan.push({ dayOffset: d, mealType, recipeId: recipe.id });
       }
     }
-
-    res.json({ entries: writtenEntries, recipesFound: savedRecipes.length });
+    const entries = buildPlanEntries(plan, new Date(), foundRecipes.map((recipe) => recipe.id));
+    const saved = await saveGeneratedRecipesAndPlan(foundRecipes, entries, req.user.id, { operation, key: idempotency.key });
+    const response = { entries: saved.entries || [], recipesFound: (saved.recipes || []).length };
+    await recordHouseholdActivity(req.user.id, { action: 'meal_planned', entityType: 'meal_plan', summary: `Online plan je napravljen · ${response.entries.length} obroka` });
+    res.json(response);
   } catch (err) {
-    console.error('Greska pri pretrazi recepata na internetu:', err);
-    sendRouteError(res, err, 'Pretraga i generisanje plana nisu uspeli');
+    await abandonOperation(req.user.id, operation, idempotency?.key).catch(() => {});
+    logger.error('online_meal_plan_failed', err, { requestId: req.requestId });
+    sendRouteError(res, err, 'Pretraga i generisanje plana nisu uspeli', req.requestId);
   }
 });
 

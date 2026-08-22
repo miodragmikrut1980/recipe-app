@@ -14,6 +14,9 @@ import { createClient } from '@supabase/supabase-js';
 
 const API = process.env.TEST_API_URL || 'http://localhost:3000';
 const results = [];
+let adminClient;
+let createdUserId;
+let createdHouseholdId;
 
 function log(name, ok, detail = '') {
   results.push({ name, ok });
@@ -27,13 +30,16 @@ async function main() {
   try {
     const r = await fetch(`${API}/health`);
     log('GET /health', r.ok);
+    const ready = await fetch(`${API}/ready`);
+    log('GET /ready (Supabase veza)', ready.ok, `status: ${ready.status}`);
   } catch (err) {
     log('GET /health', false, `Server nedostupan: ${err.message}. Da li je backend pokrenut?`);
-    return summary();
+    return finish();
   }
 
   // 1. Napravi test korisnika i uzmi token
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+  adminClient = supabase;
   const email = `smoke-test-${Date.now()}@example.com`;
   const password = 'Test1234!';
   let token;
@@ -44,6 +50,7 @@ async function main() {
       email_confirm: true,
     });
     if (createErr) throw createErr;
+    createdUserId = created.user.id;
 
     const anonClient = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_KEY);
     const { data: session, error: signInErr } = await anonClient.auth.signInWithPassword({ email, password });
@@ -52,7 +59,7 @@ async function main() {
     log('Auth: kreiranje test korisnika + login', true, email);
   } catch (err) {
     log('Auth: kreiranje test korisnika + login', false, err.message);
-    return summary();
+    return finish();
   }
 
   const authFetch = (path, options = {}) =>
@@ -162,6 +169,7 @@ async function main() {
     });
     const data = await r.json();
     const ok = r.ok && data.household?.invite_code;
+    if (ok) createdHouseholdId = data.household.id;
     log('POST /household (kreiranje)', ok, ok ? `kod: ${data.household.invite_code}` : JSON.stringify(data));
   } catch (err) {
     log('POST /household', false, err.message);
@@ -177,6 +185,16 @@ async function main() {
     }
   }
 
+  await finish();
+}
+
+async function finish() {
+  if (adminClient && createdHouseholdId) {
+    try { await adminClient.from('households').delete().eq('id', createdHouseholdId); } catch {}
+  }
+  if (adminClient && createdUserId) {
+    try { await adminClient.auth.admin.deleteUser(createdUserId); } catch {}
+  }
   summary();
 }
 
@@ -185,7 +203,7 @@ function summary() {
   console.log(`\n${'='.repeat(40)}\nRezultat: ${passed}/${results.length} testova proslo\n`);
   if (passed < results.length) {
     console.log('Za padle testove: pogledaj logove backend servera za detalje greske.\n');
-    process.exit(1);
+    process.exitCode = 1;
   }
 }
 

@@ -5,9 +5,12 @@ import os from 'os';
 import Anthropic from '@anthropic-ai/sdk';
 import { randomUUID } from 'crypto';
 import { saveRecipe, findPossibleDuplicate } from '../services/db.js';
+import { recordHouseholdActivity } from '../services/householdAccess.js';
 import { requireAuth } from '../middleware/auth.js';
 import { normalizeAiRecipe } from '../lib/validation.js';
 import { sendRouteError } from '../lib/httpError.js';
+import { verifyUploadedFile } from '../lib/fileSignature.js';
+import { logger } from '../lib/logger.js';
 
 const router = Router();
 const allowedImageTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
@@ -38,6 +41,7 @@ router.post('/parse-recipe-photo', requireAuth, upload.single('photo'), async (r
   }
 
   try {
+    verifyUploadedFile(req.file.path, 'image');
     const imageBuffer = fs.readFileSync(req.file.path);
     const base64Image = imageBuffer.toString('base64');
 
@@ -77,11 +81,12 @@ router.post('/parse-recipe-photo', requireAuth, upload.single('photo'), async (r
     };
 
     const savedRecipe = await saveRecipe(recipe, req.user.id);
+    await recordHouseholdActivity(req.user.id, { action: 'recipe_added', entityType: 'recipe', entityId: savedRecipe.id, summary: `Dodat skenirani recept: ${savedRecipe.title}` });
     const duplicateOf = await findPossibleDuplicate(savedRecipe.title, req.user.id, savedRecipe.id).catch(() => null);
     res.json({ recipe: savedRecipe, duplicateOf });
   } catch (err) {
-    console.error('Greska pri skeniranju recepta:', err);
-    sendRouteError(res, err, 'Obrada fotografije nije uspela');
+    logger.error('recipe_photo_failed', err, { requestId: req.requestId });
+    sendRouteError(res, err, 'Obrada fotografije nije uspela', req.requestId);
   } finally {
     fs.unlink(req.file.path, () => {});
   }

@@ -20,11 +20,17 @@ Produkcija zahteva Node.js 22+ i eksplicitno podešen `CORS_ORIGINS` (više orig
 3. Project Settings → API: kopiraj URL i service_role ključ u `.env`
 4. Authentication → Providers: uključi Email provider
 
-Za postojeći Supabase projekat ne pokreći celu šemu ponovo: izvrši samo `migrations/20260821_security_hardening.sql` u SQL Editor-u.
+Za postojeći Supabase projekat ne pokreći celu šemu ponovo. Izvrši migracije ovim redom:
+
+1. `migrations/20260821_security_hardening.sql`
+2. `migrations/20260822_production_hardening.sql`
+3. `migrations/20260822_staging_operations.sql`
+
+Druga migracija dodaje idempotency i atomske AI planove; treća dodaje dnevnu kontrolu AI budžeta. Bez njih AI rute namerno neće raditi.
 
 ## Autentifikacija
 
-Sve rute (osim `/health`) zahtevaju `Authorization: Bearer <token>` header sa Supabase Auth JWT-om. Mobilna app se loguje direktno preko Supabase-a (anon ključ) i šalje token uz svaki zahtev. Backend verifikuje token i filtrira sve podatke po `user_id`.
+Sve rute osim `/health` i `/ready` zahtevaju `Authorization: Bearer <token>`. `/health` proverava proces, a `/ready` i Supabase vezu.
 
 Rate limiting: 100 zahteva/15min po IP-u opšte, 20/15min za AI rute.
 
@@ -45,6 +51,11 @@ Rate limiting: 100 zahteva/15min po IP-u opšte, 20/15min za AI rute.
 - JSON body je ograničen na 256 KB, fotografija na 10 MB, video na 100 MB. MIME tip se proverava pre obrade.
 - AI odgovori se validiraju pre upisa, a nutritivne vrednosti su samo procena.
 - Invite kod domaćinstva je 128-bitni nasumični token. Kreiranje i pridruživanje su atomske SQL funkcije dostupne samo `service_role` ulozi.
+- Upload se proverava po stvarnom potpisu fajla (magic bytes), ne samo po ekstenziji/MIME header-u.
+- Logovi su strukturisani JSON zapisi sa `X-Request-Id`; tokeni, API ključevi i e-mail adrese se rediguju.
+- AI plan rute prihvataju `Idempotency-Key`, pa ponovljen zahtev ne pravi duple recepte ili obroke.
+- AI rute troše ponderisane dnevne kredite. Limite određuju `AI_DAILY_USER_CREDITS` i `AI_DAILY_GLOBAL_CREDITS`.
+- Opcioni `ERROR_WEBHOOK_URL` dobija samo redigovane operativne alarme bez tokena i sadržaja recepta.
 
 ## Tok obrade videa
 
@@ -64,7 +75,15 @@ npm test
 npm run check
 ```
 
-Pokrivaju SSRF privatne IPv4/IPv6 opsege, URL/ulaznu validaciju, granice AI recepta i spajanje liste za kupovinu.
+Pokrivaju SSRF, validaciju, magic bytes, redakciju, monitoring payload, request ID, AI plan, AI budžet i SQL dozvole.
+
+Pravi test Supabase izolacije ne troši AI kredit:
+
+```bash
+TEST_API_URL=http://localhost:3000 npm run test:integration
+```
+
+Zahteva `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` i `SUPABASE_ANON_KEY` test projekta. GitHub Actions automatski pokreće ovaj scenario kada su unesene odgovarajuće test tajne.
 
 ## Integracioni smoke test
 

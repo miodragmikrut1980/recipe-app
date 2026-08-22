@@ -3,6 +3,7 @@ import net from 'net';
 import http from 'node:http';
 import https from 'node:https';
 import { HttpError } from '../lib/httpError.js';
+import { logger } from '../lib/logger.js';
 
 const MAX_REDIRECTS = 4;
 const MAX_BYTES = 2 * 1024 * 1024;
@@ -42,10 +43,11 @@ async function resolvePublicUrl(rawUrl) {
   else {
     try {
       const raw = await dns.lookup(hostname, { all: true, verbatim: true });
-      // Neki resolveri/mreze povremeno vrate zapis bez ispravnog address polja —
-      // odbaci ih ovde umesto da pukne dublje u mreznom pozivu
       addresses = raw.filter((a) => a && typeof a.address === 'string' && net.isIP(a.address));
-    } catch { throw new HttpError(422, 'Domen nije moguće pronaći'); }
+    } catch (dnsErr) {
+      logger.warn('public_fetch_dns_failed', { hostname, errorName: dnsErr?.name || 'Error' });
+      throw new HttpError(422, 'Domen nije moguće pronaći');
+    }
   }
   if (!addresses.length || addresses.some(({ address }) => isBlockedIp(address))) throw new HttpError(400, 'Privatne mrežne adrese nisu dozvoljene');
   return { url, address: addresses[0] };

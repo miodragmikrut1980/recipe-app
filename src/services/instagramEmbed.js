@@ -26,7 +26,7 @@ export async function fetchPostThumbnail(url) {
   if (!response.ok) {
     // Ako oEmbed ne uspe (npr. privatan nalog, obrisan post), nastavljamo
     // bez thumbnail-a umesto da rusimo ceo tok cuvanja recepta
-    console.warn(`oEmbed poziv nije uspeo za ${url}: ${response.status}`);
+    logger.warn('instagram_oembed_failed', { status: response.status, sourceHost: new URL(url).hostname });
     return null;
   }
 
@@ -36,3 +36,4 @@ export async function fetchPostThumbnail(url) {
     authorName: data.author_name || null,
   };
 }
+import { logger } from '../lib/logger.js';

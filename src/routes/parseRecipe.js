@@ -6,6 +6,8 @@ import { fetchYouTubeDescription, isYouTubeUrl } from '../services/youtubeApi.js
 import { saveRecipe, findPossibleDuplicate } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { httpUrl, stringValue } from '../lib/validation.js';
+import { logger } from '../lib/logger.js';
+import { recordHouseholdActivity } from '../services/householdAccess.js';
 
 const router = Router();
 
@@ -53,6 +55,8 @@ router.post('/parse-recipe', requireAuth, async (req, res) => {
       }
     }
 
+    logger.info('recipe_text_ready', { requestId: req.requestId, characterCount: recipeText.length, sourceHost: new URL(url).hostname });
+
     const [recipe, thumbnail] = await Promise.all([
       parseRecipeFromText(recipeText, url),
       fetchPostThumbnail(url),
@@ -63,10 +67,11 @@ router.post('/parse-recipe', requireAuth, async (req, res) => {
     }
 
     const savedRecipe = await saveRecipe(recipe, req.user.id);
+    await recordHouseholdActivity(req.user.id, { action: 'recipe_added', entityType: 'recipe', entityId: savedRecipe.id, summary: `Dodat recept: ${savedRecipe.title}` });
     const duplicateOf = await findPossibleDuplicate(savedRecipe.title, req.user.id, savedRecipe.id).catch(() => null);
     res.json({ recipe: savedRecipe, duplicateOf });
   } catch (err) {
-    console.error('Greska pri parsiranju recepta:', err);
+    logger.error('recipe_parse_failed', err, { requestId: req.requestId });
     res.status(err.status || 500).json({ error: err.status ? err.message : 'Obrada recepta nije uspela' });
   }
 });

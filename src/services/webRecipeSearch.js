@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { logger } from '../lib/logger.js';
 import { randomUUID } from 'crypto';
 import { httpUrl, normalizeAiRecipe } from '../lib/validation.js';
 
@@ -76,7 +77,7 @@ export async function findRecipesOnline(constraints, count = 6, topRatedOnly = f
   try {
     parsed = JSON.parse(cleaned);
   } catch (parseErr) {
-    console.error(`JSON parse neuspesan (duzina odgovora: ${cleaned.length} karaktera). Greska: ${parseErr.message}`);
+    logger.error('web_recipe_ai_json_invalid', parseErr, { responseLength: cleaned.length });
     throw new Error('Nisam uspeo da obradim rezultate pretrage. Probaj ponovo.');
   }
 

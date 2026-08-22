@@ -1,0 +1,55 @@
+name: Backend CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+        env:
+          NODE_ENV: test
+          SUPABASE_URL: https://example.supabase.co
+          SUPABASE_SERVICE_KEY: test-service-key
+          ANTHROPIC_API_KEY: test-anthropic-key
+          OPENAI_API_KEY: test-openai-key
+
+  integration:
+    needs: verify
+    if: ${{ github.event_name != 'pull_request' && secrets.TEST_SUPABASE_URL != '' }}
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+      PORT: 3000
+      TEST_API_URL: http://127.0.0.1:3000
+      SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_KEY }}
+      SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
+      ANTHROPIC_API_KEY: integration-test-not-used
+      OPENAI_API_KEY: integration-test-not-used
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Run isolated Supabase integration suite
+        run: |
+          npm start > /tmp/recipe-backend.log 2>&1 &
+          server_pid=$!
+          trap 'kill $server_pid 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            curl --fail --silent http://127.0.0.1:3000/ready >/dev/null && break
+            sleep 1
+          done
+          curl --fail http://127.0.0.1:3000/ready
+          npm run test:integration || { sed -n '1,240p' /tmp/recipe-backend.log; exit 1; }

@@ -1,3 +1,5 @@
+import { logger } from './logger.js';
+
 export class HttpError extends Error {
   constructor(status, message, code = undefined) {
     super(message);
@@ -11,8 +13,8 @@ export function asyncRoute(handler) {
   return (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
 }
 
-export function sendRouteError(res, err, fallback = 'Operacija nije uspela') {
+export function sendRouteError(res, err, fallback = 'Operacija nije uspela', requestId = undefined) {
   const status = Number.isInteger(err?.status) ? err.status : 500;
-  if (status >= 500) console.error(fallback, err);
+  if (status >= 500) logger.error('route_error', err, { fallback, requestId });
   return res.status(status).json({ error: status >= 500 ? fallback : err.message, ...(err?.code ? { code: err.code } : {}) });
 }

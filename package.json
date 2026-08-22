@@ -1,13 +1,18 @@
 {
   "name": "recipe-saver-backend",
-  "version": "1.1.0",
+  "version": "1.6.0",
   "main": "src/index.js",
   "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "test": "node --test test/*.test.js",
+    "test:integration": "node --test test/integration/*.test.js",
     "test:smoke": "node smoke-test.js",
+    "offers:import": "node scripts/import-market-offers.js",
     "check": "node --test test/*.test.js && find src -name '*.js' -print0 | xargs -0 -n1 node --check"
   },
   "dependencies": {

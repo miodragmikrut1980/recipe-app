@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { logger } from '../lib/logger.js';
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
@@ -35,9 +36,9 @@ export async function sendPushNotification(tokens, title, body, data = {}) {
       body: JSON.stringify(messages),
     });
     if (!response.ok) {
-      console.warn(`Expo push servis vratio gresku: ${response.status}`);
+      logger.warn('expo_push_rejected', { status: response.status });
     }
   } catch (err) {
-    console.warn(`Slanje push notifikacije nije uspelo: ${err.message}`);
+    logger.warn('expo_push_failed', { errorName: err?.name || 'Error' });
   }
 }

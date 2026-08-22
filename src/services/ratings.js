@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { sendPushNotification } from './pushNotifications.js';
 import { getAccessibleRecipe } from './db.js';
+import { logger } from '../lib/logger.js';
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
@@ -22,7 +23,7 @@ export async function setRating(recipeId, userId, rating) {
 
   if (rating >= FAVORITE_THRESHOLD) {
     notifyHouseholdOfGoodRating(recipeId, userId, rating).catch((err) =>
-      console.warn('Notifikacija porodici nije uspela (ne prekida tok):', err.message)
+      logger.warn('household_rating_notification_failed', { errorName: err?.name || 'Error' })
     );
   }
 

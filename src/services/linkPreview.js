@@ -10,6 +10,7 @@
  * vlasnika proizvoda (vidi razgovor o UX pojednostavljenju).
  */
 import { fetchPublicHtml } from './safeRemoteFetch.js';
+import { logger } from '../lib/logger.js';
 
 const BROWSER_UA =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
@@ -83,7 +84,9 @@ export async function fetchLinkPreview(url) {
 
     return { caption: caption.trim(), title: title || null };
   } catch (err) {
-    console.warn(`Link preview nije uspeo za ${url}: ${err.message}`);
+    let sourceHost = 'unknown';
+    try { sourceHost = new URL(url).hostname; } catch {}
+    logger.warn('link_preview_failed', { sourceHost, errorName: err?.name || 'Error' });
     return null;
   }
 }
