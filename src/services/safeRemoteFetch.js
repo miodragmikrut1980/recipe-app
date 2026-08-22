@@ -40,7 +40,12 @@ async function resolvePublicUrl(rawUrl) {
   let addresses;
   if (net.isIP(hostname)) addresses = [{ address: hostname, family: net.isIPv6(hostname) ? 6 : 4 }];
   else {
-    try { addresses = await dns.lookup(hostname, { all: true, verbatim: true }); } catch { throw new HttpError(422, 'Domen nije moguće pronaći'); }
+    try {
+      const raw = await dns.lookup(hostname, { all: true, verbatim: true });
+      // Neki resolveri/mreze povremeno vrate zapis bez ispravnog address polja —
+      // odbaci ih ovde umesto da pukne dublje u mreznom pozivu
+      addresses = raw.filter((a) => a && typeof a.address === 'string' && net.isIP(a.address));
+    } catch { throw new HttpError(422, 'Domen nije moguće pronaći'); }
   }
   if (!addresses.length || addresses.some(({ address }) => isBlockedIp(address))) throw new HttpError(400, 'Privatne mrežne adrese nisu dozvoljene');
   return { url, address: addresses[0] };
