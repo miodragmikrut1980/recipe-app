@@ -76,9 +76,7 @@ export async function findRecipesOnline(constraints, count = 6, topRatedOnly = f
   try {
     parsed = JSON.parse(cleaned);
   } catch (parseErr) {
-    console.error('JSON parse neuspesan. Sirov odgovor (prvih 3000 karaktera):');
-    console.error(cleaned.slice(0, 3000));
-    console.error(`Duzina odgovora: ${cleaned.length} karaktera. Greska: ${parseErr.message}`);
+    console.error(`JSON parse neuspesan (duzina odgovora: ${cleaned.length} karaktera). Greska: ${parseErr.message}`);
     throw new Error('Nisam uspeo da obradim rezultate pretrage. Probaj ponovo.');
   }
 

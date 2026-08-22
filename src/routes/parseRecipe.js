@@ -53,8 +53,6 @@ router.post('/parse-recipe', requireAuth, async (req, res) => {
       }
     }
 
-    console.log(`[RECIPE-TEXT-DEBUG] duzina=${recipeText.length}, sadrzaj (prvih 300 kar.): ${recipeText.slice(0, 300)}`);
-
     const [recipe, thumbnail] = await Promise.all([
       parseRecipeFromText(recipeText, url),
       fetchPostThumbnail(url),

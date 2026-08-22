@@ -42,13 +42,10 @@ async function resolvePublicUrl(rawUrl) {
   else {
     try {
       const raw = await dns.lookup(hostname, { all: true, verbatim: true });
-      console.log(`[DNS-DEBUG-v2] hostname=${hostname} raw=${JSON.stringify(raw)}`);
+      // Neki resolveri/mreze povremeno vrate zapis bez ispravnog address polja —
+      // odbaci ih ovde umesto da pukne dublje u mreznom pozivu
       addresses = raw.filter((a) => a && typeof a.address === 'string' && net.isIP(a.address));
-      console.log(`[DNS-DEBUG-v2] posle filtera: ${JSON.stringify(addresses)}`);
-    } catch (dnsErr) {
-      console.log(`[DNS-DEBUG-v2] dns.lookup baca gresku: ${dnsErr.message}`);
-      throw new HttpError(422, 'Domen nije moguće pronaći');
-    }
+    } catch { throw new HttpError(422, 'Domen nije moguće pronaći'); }
   }
   if (!addresses.length || addresses.some(({ address }) => isBlockedIp(address))) throw new HttpError(400, 'Privatne mrežne adrese nisu dozvoljene');
   return { url, address: addresses[0] };
